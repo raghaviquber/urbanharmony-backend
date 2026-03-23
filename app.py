@@ -6,10 +6,10 @@ import os
 
 app = Flask(__name__)
 
-# ✅ CORS (allow frontend connection)
+# ✅ CORS
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# ✅ Database (Render-safe)
+# ✅ Database (Render safe)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
     "DATABASE_URL",
     "sqlite:///urbanharmony.db"
@@ -19,9 +19,10 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 # -----------------------------
-# CREATE TABLES SAFELY
+# ENSURE TABLES ALWAYS EXIST
 # -----------------------------
-with app.app_context():
+@app.before_request
+def create_tables():
     db.create_all()
 
 # -----------------------------
@@ -113,23 +114,27 @@ def create_issue():
 
 @app.route("/issues", methods=["GET"])
 def get_issues():
-    issues = Issue.query.all()
-    result = []
+    try:
+        issues = Issue.query.all()
+        result = []
 
-    for i in issues:
-        upvotes = Upvote.query.filter_by(issue_id=i.id).count()
+        for i in issues:
+            upvotes = Upvote.query.filter_by(issue_id=i.id).count()
 
-        result.append({
-            "id": i.id,
-            "title": i.title,
-            "description": i.description,
-            "category": i.category,
-            "location": i.location,
-            "status": i.status,
-            "upvotes": upvotes
-        })
+            result.append({
+                "id": i.id,
+                "title": i.title,
+                "description": i.description,
+                "category": i.category,
+                "location": i.location,
+                "status": i.status,
+                "upvotes": upvotes
+            })
 
-    return jsonify(result)
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/upvote", methods=["POST"])
@@ -154,9 +159,8 @@ def upvote():
 
     return jsonify({"message": "Upvoted"})
 
-
 # -----------------------------
-# RUN (ONLY FOR LOCAL)
+# RUN (LOCAL ONLY)
 # -----------------------------
 
 if __name__ == "__main__":
