@@ -75,7 +75,7 @@ def suggest_category(description):
 # ROUTES
 # -----------------------------
 
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
     return "UrbanHarmony Backend Running 🚀"
 
