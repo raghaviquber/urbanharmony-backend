@@ -2,17 +2,27 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+import os
 
 app = Flask(__name__)
 
-# ✅ CORS FIX (IMPORTANT)
+# ✅ CORS (allow frontend connection)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# Database config
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///urbanharmony.db'
+# ✅ Database (Render-safe)
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
+    "DATABASE_URL",
+    "sqlite:///urbanharmony.db"
+)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
+
+# -----------------------------
+# CREATE TABLES SAFELY
+# -----------------------------
+with app.app_context():
+    db.create_all()
 
 # -----------------------------
 # MODELS
@@ -51,7 +61,6 @@ class Upvote(db.Model):
     user_id = db.Column(db.Integer)
     issue_id = db.Column(db.Integer)
 
-
 # -----------------------------
 # HELPER FUNCTION
 # -----------------------------
@@ -69,7 +78,6 @@ def suggest_category(description):
         return "Electricity"
     else:
         return "General"
-
 
 # -----------------------------
 # ROUTES
@@ -97,7 +105,10 @@ def create_issue():
     db.session.add(issue)
     db.session.commit()
 
-    return jsonify({"message": "Issue created", "category": category})
+    return jsonify({
+        "message": "Issue created",
+        "category": category
+    })
 
 
 @app.route("/issues", methods=["GET"])
@@ -125,6 +136,14 @@ def get_issues():
 def upvote():
     data = request.json
 
+    existing = Upvote.query.filter_by(
+        user_id=data["user_id"],
+        issue_id=data["issue_id"]
+    ).first()
+
+    if existing:
+        return jsonify({"message": "Already upvoted"})
+
     vote = Upvote(
         user_id=data["user_id"],
         issue_id=data["issue_id"]
@@ -137,10 +156,8 @@ def upvote():
 
 
 # -----------------------------
-# RUN
+# RUN (ONLY FOR LOCAL)
 # -----------------------------
 
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
     app.run(host="0.0.0.0", port=5000)
