@@ -1,134 +1,64 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
 from datetime import datetime
 import os
 
 app = Flask(__name__)
+CORS(app)
 
-# ✅ CORS
-CORS(app, resources={r"/*": {"origins": "*"}})
-
-# ✅ Database (Render safe)
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
+# -----------------------------
+# DATABASE CONFIG
+# -----------------------------
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     "DATABASE_URL",
-    "sqlite:///urbanharmony.db"
+    "sqlite:///issues.db"
 )
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
 # -----------------------------
-# ENSURE TABLES ALWAYS EXIST
+# MODEL
 # -----------------------------
-@app.before_request
-def create_tables():
-    db.create_all()
-
-# -----------------------------
-# MODELS
-# -----------------------------
-
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100))
-    email = db.Column(db.String(100))
-    password = db.Column(db.String(100))
-    role = db.Column(db.String(20))
-    civic_score = db.Column(db.Integer, default=0)
-
-
-class Authority(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100))
-    department = db.Column(db.String(100))
-    email = db.Column(db.String(100))
-
-
 class Issue(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(200))
-    description = db.Column(db.Text)
-    category = db.Column(db.String(100))
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=False)
     location = db.Column(db.String(200))
+    category = db.Column(db.String(100))
     status = db.Column(db.String(50), default="Pending")
+    upvotes = db.Column(db.Integer, default=0)
+    user_id = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    created_by = db.Column(db.Integer)
-    assigned_authority_id = db.Column(db.Integer)
-
-
-class Upvote(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer)
-    issue_id = db.Column(db.Integer)
 
 # -----------------------------
-# HELPER FUNCTION
+# HOME ROUTE
 # -----------------------------
-
-def suggest_category(description):
-    text = description.lower()
-
-    if "garbage" in text or "trash" in text:
-        return "Waste Management"
-    elif "pothole" in text or "road" in text:
-        return "Road Issue"
-    elif "water" in text or "leak" in text:
-        return "Water Issue"
-    elif "light" in text:
-        return "Electricity"
-    else:
-        return "General"
-
-# -----------------------------
-# ROUTES
-# -----------------------------
-
-@app.route("/", methods=["GET"])
+@app.route("/")
 def home():
     return "UrbanHarmony Backend Running 🚀"
 
-
-@app.route("/create-issue", methods=["POST"])
-def create_issue():
-    data = request.json
-
-    category = suggest_category(data["description"])
-
-    issue = Issue(
-        title=data["title"],
-        description=data["description"],
-        category=category,
-        location=data["location"],
-        created_by=data.get("user_id", 1)
-    )
-
-    db.session.add(issue)
-    db.session.commit()
-
-    return jsonify({
-        "message": "Issue created",
-        "category": category
-    })
-
-
+# -----------------------------
+# GET ALL ISSUES
+# -----------------------------
 @app.route("/issues", methods=["GET"])
 def get_issues():
     try:
-        issues = Issue.query.all()
+        issues = Issue.query.order_by(Issue.created_at.desc()).all()
+
         result = []
-
         for i in issues:
-            upvotes = Upvote.query.filter_by(issue_id=i.id).count()
-
             result.append({
                 "id": i.id,
                 "title": i.title,
                 "description": i.description,
-                "category": i.category,
                 "location": i.location,
+                "category": i.category,
                 "status": i.status,
-                "upvotes": upvotes
+                "upvotes": i.upvotes,
+                "user_id": i.user_id,
+                "created_at": i.created_at.isoformat()
             })
 
         return jsonify(result)
@@ -136,32 +66,115 @@ def get_issues():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# -----------------------------
+# CREATE ISSUE
+# -----------------------------
+@app.route("/create-issue", methods=["POST"])
+def create_issue():
+    try:
+        data = request.get_json()
 
+        title = data.get("title")
+        description = data.get("description")
+        location = data.get("location")
+        category = data.get("category")
+        user_id = data.get("user_id")
+
+        if not title or not description:
+            return jsonify({"error": "Missing fields"}), 400
+
+        new_issue = Issue(
+            title=title,
+            description=description,
+            location=location,
+            category=category,
+            user_id=user_id,
+            status="Pending",
+            upvotes=0
+        )
+
+        db.session.add(new_issue)
+        db.session.commit()
+
+        return jsonify({"message": "Issue created successfully"}), 200
+
+    except Exception as e:
+        print("ERROR:", str(e))
+        return jsonify({"error": str(e)}), 500
+
+# -----------------------------
+# UPVOTE
+# -----------------------------
 @app.route("/upvote", methods=["POST"])
 def upvote():
-    data = request.json
+    try:
+        data = request.get_json()
+        issue_id = data.get("issue_id")
 
-    existing = Upvote.query.filter_by(
-        user_id=data["user_id"],
-        issue_id=data["issue_id"]
-    ).first()
+        issue = Issue.query.get(issue_id)
 
-    if existing:
-        return jsonify({"message": "Already upvoted"})
+        if not issue:
+            return jsonify({"error": "Issue not found"}), 404
 
-    vote = Upvote(
-        user_id=data["user_id"],
-        issue_id=data["issue_id"]
-    )
+        issue.upvotes += 1
+        db.session.commit()
 
-    db.session.add(vote)
-    db.session.commit()
+        return jsonify({"message": "Upvoted successfully"}), 200
 
-    return jsonify({"message": "Upvoted"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # -----------------------------
-# RUN (LOCAL ONLY)
+# UPDATE STATUS
 # -----------------------------
+@app.route("/update-status", methods=["POST"])
+def update_status():
+    try:
+        data = request.get_json()
+        issue_id = data.get("issue_id")
+        status = data.get("status")
 
+        issue = Issue.query.get(issue_id)
+
+        if not issue:
+            return jsonify({"error": "Issue not found"}), 404
+
+        issue.status = status
+        db.session.commit()
+
+        return jsonify({"message": "Status updated"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# -----------------------------
+# DELETE ISSUE
+# -----------------------------
+@app.route("/delete-issue", methods=["POST"])
+def delete_issue():
+    try:
+        data = request.get_json()
+        issue_id = data.get("issue_id")
+
+        issue = Issue.query.get(issue_id)
+
+        if not issue:
+            return jsonify({"error": "Issue not found"}), 404
+
+        db.session.delete(issue)
+        db.session.commit()
+
+        return jsonify({"message": "Issue deleted"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# -----------------------------
+# RUN (IMPORTANT FOR RENDER)
+# -----------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    with app.app_context():
+        db.create_all()
+
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
