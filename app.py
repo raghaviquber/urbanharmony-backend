@@ -17,8 +17,6 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
-with app.app_context():
-    db.create_all()
 
 # -----------------------------
 # MODEL
@@ -33,6 +31,13 @@ class Issue(db.Model):
     upvotes = db.Column(db.Integer, default=0)
     user_id = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+# -----------------------------
+# 🔥 FORCE TABLE CREATION (IMPORTANT FIX)
+# -----------------------------
+@app.before_request
+def create_tables():
+    db.create_all()
 
 # -----------------------------
 # HOME ROUTE
@@ -66,6 +71,7 @@ def get_issues():
         return jsonify(result)
 
     except Exception as e:
+        print("ERROR:", str(e))
         return jsonify({"error": str(e)}), 500
 
 # -----------------------------
@@ -83,7 +89,7 @@ def create_issue():
         user_id = data.get("user_id")
 
         if not title or not description:
-            return jsonify({"error": "Missing fields"}), 400
+            return jsonify({"error": "Missing required fields"}), 400
 
         new_issue = Issue(
             title=title,
@@ -105,7 +111,7 @@ def create_issue():
         return jsonify({"error": str(e)}), 500
 
 # -----------------------------
-# UPVOTE
+# UPVOTE ISSUE
 # -----------------------------
 @app.route("/upvote", methods=["POST"])
 def upvote():
@@ -124,6 +130,7 @@ def upvote():
         return jsonify({"message": "Upvoted successfully"}), 200
 
     except Exception as e:
+        print("ERROR:", str(e))
         return jsonify({"error": str(e)}), 500
 
 # -----------------------------
@@ -147,6 +154,7 @@ def update_status():
         return jsonify({"message": "Status updated"}), 200
 
     except Exception as e:
+        print("ERROR:", str(e))
         return jsonify({"error": str(e)}), 500
 
 # -----------------------------
@@ -169,14 +177,12 @@ def delete_issue():
         return jsonify({"message": "Issue deleted"}), 200
 
     except Exception as e:
+        print("ERROR:", str(e))
         return jsonify({"error": str(e)}), 500
 
 # -----------------------------
-# RUN (IMPORTANT FOR RENDER)
+# RUN (LOCAL ONLY)
 # -----------------------------
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
-
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
