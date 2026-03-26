@@ -8,12 +8,15 @@ app = Flask(__name__)
 CORS(app)
 
 # -----------------------------
-# DATABASE CONFIG
+# DATABASE CONFIG (FIXED)
 # -----------------------------
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
-    "DATABASE_URL",
-    "sqlite:///issues.db"
-)
+database_url = os.environ.get("DATABASE_URL")
+
+if database_url:
+    # Fix Render PostgreSQL URL issue
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url or "sqlite:///issues.db"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -33,10 +36,9 @@ class Issue(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 # -----------------------------
-# 🔥 FORCE TABLE CREATION (IMPORTANT FIX)
+# CREATE TABLES (RUN ON START)
 # -----------------------------
-@app.before_request
-def create_tables():
+with app.app_context():
     db.create_all()
 
 # -----------------------------
@@ -72,6 +74,33 @@ def get_issues():
 
     except Exception as e:
         print("ERROR:", str(e))
+        return jsonify({"error": str(e)}), 500
+
+# -----------------------------
+# GET ISSUES BY USER (NEW 🔥)
+# -----------------------------
+@app.route("/my-issues/<user_id>", methods=["GET"])
+def get_user_issues(user_id):
+    try:
+        issues = Issue.query.filter_by(user_id=user_id).order_by(Issue.created_at.desc()).all()
+
+        result = []
+        for i in issues:
+            result.append({
+                "id": i.id,
+                "title": i.title,
+                "description": i.description,
+                "location": i.location,
+                "category": i.category,
+                "status": i.status,
+                "upvotes": i.upvotes,
+                "user_id": i.user_id,
+                "created_at": i.created_at.isoformat()
+            })
+
+        return jsonify(result)
+
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 # -----------------------------
@@ -181,7 +210,7 @@ def delete_issue():
         return jsonify({"error": str(e)}), 500
 
 # -----------------------------
-# RUN (LOCAL ONLY)
+# RUN
 # -----------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
