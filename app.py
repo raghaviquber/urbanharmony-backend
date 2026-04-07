@@ -8,20 +8,24 @@ app = Flask(__name__)
 CORS(app)
 
 # -----------------------------
-# DATABASE CONFIG (FIXED ✅)
+# DATABASE CONFIG (FINAL FIX ✅)
 # -----------------------------
 database_url = os.environ.get("DATABASE_URL")
 
+print("DATABASE_URL =", database_url)  # Debug
+
 if database_url:
-    # Fix old postgres:// issue
     database_url = database_url.replace("postgres://", "postgresql://", 1)
 
-    # 🔥 IMPORTANT: Enable SSL for Render PostgreSQL
-    if "sslmode" not in database_url:
-        database_url += "?sslmode=require"
-
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url or "sqlite:///issues.db"
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# 🔥 IMPORTANT: SSL FIX FOR RENDER
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    "connect_args": {
+        "sslmode": "require"
+    }
+}
 
 db = SQLAlchemy(app)
 
@@ -29,7 +33,7 @@ db = SQLAlchemy(app)
 # MODEL
 # -----------------------------
 class Issue(db.Model):
-    __tablename__ = "issues"   # ✅ force table name
+    __tablename__ = "issues"
 
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
@@ -42,11 +46,14 @@ class Issue(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 # -----------------------------
-# CREATE TABLES (RUN ON START)
+# CREATE TABLES
 # -----------------------------
 with app.app_context():
-    db.create_all()
-    print("✅ Tables created / verified")
+    try:
+        db.create_all()
+        print("✅ Tables created / verified")
+    except Exception as e:
+        print("❌ DB ERROR:", str(e))
 
 # -----------------------------
 # HOME ROUTE
@@ -84,7 +91,7 @@ def get_issues():
         return jsonify({"error": str(e)}), 500
 
 # -----------------------------
-# GET ISSUES BY USER
+# GET USER ISSUES
 # -----------------------------
 @app.route("/my-issues/<user_id>", methods=["GET"])
 def get_user_issues(user_id):
@@ -118,11 +125,11 @@ def create_issue():
     try:
         data = request.get_json()
 
+        if not data:
+            return jsonify({"error": "No data received"}), 400
+
         title = data.get("title")
         description = data.get("description")
-        location = data.get("location")
-        category = data.get("category")
-        user_id = data.get("user_id")
 
         if not title or not description:
             return jsonify({"error": "Missing required fields"}), 400
@@ -130,9 +137,9 @@ def create_issue():
         new_issue = Issue(
             title=title,
             description=description,
-            location=location,
-            category=category,
-            user_id=user_id,
+            location=data.get("location"),
+            category=data.get("category"),
+            user_id=data.get("user_id"),
             status="Pending",
             upvotes=0
         )
@@ -153,9 +160,7 @@ def create_issue():
 def upvote():
     try:
         data = request.get_json()
-        issue_id = data.get("issue_id")
-
-        issue = Issue.query.get(issue_id)
+        issue = Issue.query.get(data.get("issue_id"))
 
         if not issue:
             return jsonify({"error": "Issue not found"}), 404
@@ -176,15 +181,12 @@ def upvote():
 def update_status():
     try:
         data = request.get_json()
-        issue_id = data.get("issue_id")
-        status = data.get("status")
-
-        issue = Issue.query.get(issue_id)
+        issue = Issue.query.get(data.get("issue_id"))
 
         if not issue:
             return jsonify({"error": "Issue not found"}), 404
 
-        issue.status = status
+        issue.status = data.get("status")
         db.session.commit()
 
         return jsonify({"message": "Status updated"}), 200
@@ -200,9 +202,7 @@ def update_status():
 def delete_issue():
     try:
         data = request.get_json()
-        issue_id = data.get("issue_id")
-
-        issue = Issue.query.get(issue_id)
+        issue = Issue.query.get(data.get("issue_id"))
 
         if not issue:
             return jsonify({"error": "Issue not found"}), 404
