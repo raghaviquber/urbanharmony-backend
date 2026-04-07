@@ -8,13 +8,17 @@ app = Flask(__name__)
 CORS(app)
 
 # -----------------------------
-# DATABASE CONFIG (FIXED)
+# DATABASE CONFIG (FIXED ✅)
 # -----------------------------
 database_url = os.environ.get("DATABASE_URL")
 
 if database_url:
-    # Fix Render PostgreSQL URL issue
+    # Fix old postgres:// issue
     database_url = database_url.replace("postgres://", "postgresql://", 1)
+
+    # 🔥 IMPORTANT: Enable SSL for Render PostgreSQL
+    if "sslmode" not in database_url:
+        database_url += "?sslmode=require"
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or "sqlite:///issues.db"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -25,6 +29,8 @@ db = SQLAlchemy(app)
 # MODEL
 # -----------------------------
 class Issue(db.Model):
+    __tablename__ = "issues"   # ✅ force table name
+
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=False)
@@ -40,6 +46,7 @@ class Issue(db.Model):
 # -----------------------------
 with app.app_context():
     db.create_all()
+    print("✅ Tables created / verified")
 
 # -----------------------------
 # HOME ROUTE
@@ -77,7 +84,7 @@ def get_issues():
         return jsonify({"error": str(e)}), 500
 
 # -----------------------------
-# GET ISSUES BY USER (NEW 🔥)
+# GET ISSUES BY USER
 # -----------------------------
 @app.route("/my-issues/<user_id>", methods=["GET"])
 def get_user_issues(user_id):
