@@ -17,15 +17,12 @@ print("DATABASE_URL =", database_url)  # Debug
 if database_url:
     database_url = database_url.replace("postgres://", "postgresql://", 1)
 
+    # ✅ Add SSL safely inside URL
+    if "sslmode" not in database_url:
+        database_url += "?sslmode=require"
+
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# 🔥 IMPORTANT: SSL FIX FOR RENDER
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    "connect_args": {
-        "sslmode": "require"
-    }
-}
 
 db = SQLAlchemy(app)
 
